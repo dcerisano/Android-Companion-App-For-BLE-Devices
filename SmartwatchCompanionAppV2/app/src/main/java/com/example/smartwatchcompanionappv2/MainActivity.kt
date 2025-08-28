@@ -13,9 +13,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue // Added for 'by' delegate
+import androidx.compose.runtime.mutableStateOf // Added for mutableStateOf
+import androidx.compose.runtime.remember // Added for remember
+import androidx.compose.runtime.derivedStateOf // Added for deriving the names list
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.example.smartwatchcompanionappv2.ui.theme.AndroidCompanionAppForBLEDevicesTheme
@@ -50,17 +51,29 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val scannedDevices by remember { mutableStateOf(listOf<BluetoothDevice>()) } 
+                    val scannedDevicesSource by remember { mutableStateOf(listOf<BluetoothDevice>()) } 
                     val connectionStatus by remember { mutableStateOf("Idle") }
                     val isScanning by remember { mutableStateOf(false) }
                     val connectedDeviceName by remember { mutableStateOf<String?>(null) }
 
-                    // Line 61: Type mismatch error occurs here if MainScreen expects List<String>
+                    val scannedDeviceDisplayNames by remember {
+                        derivedStateOf {
+                            scannedDevicesSource.map { device ->
+                                try {
+                                    device.name ?: "Unknown Device" 
+                                } catch (e: SecurityException) {
+                                    Log.e("MainActivity", "Missing BLUETOOTH_CONNECT permission for device.name in derivedStateOf", e)
+                                    "Permission Denied" 
+                                }
+                            }
+                        }
+                    }
+
                     MainScreen(
-                        scannedDevices = scannedDevices, 
+                        scannedDevices = scannedDeviceDisplayNames, 
                         connectionStatus = connectionStatus,
-                        onConnectClick = { deviceId ->
-                            // TODO: Implement connect logic
+                        onConnectClick = { deviceIdentifier -> 
+                            Log.d("MainActivity", "onConnectClick with: $deviceIdentifier")
                         },
                         onDisconnectClick = {
                             // TODO: Implement disconnect logic
@@ -87,22 +100,35 @@ class MainActivity : ComponentActivity() {
 
     fun updateDeviceList(device: BluetoothDevice?) {
         if (device != null) {
-            Log.d("MainActivity", "Instance.updateDeviceList called with device: ${device.name ?: "Unknown"}")
+            val deviceNameToLog = try {
+                device.name ?: "Unknown"
+            } catch (e: SecurityException) {
+                Log.e("MainActivity", "Missing BLUETOOTH_CONNECT permission for device.name in updateDeviceList", e)
+                "Permission Denied"
+            }
+            Log.d("MainActivity", "Instance.updateDeviceList called with device: $deviceNameToLog")
+            // Example: Update scannedDevicesSource
+            // val currentList = scannedDevicesSource.toMutableList() 
+            // if (!currentList.any { it.address == device.address }) {
+            //     currentList.add(device)
+            //     scannedDevicesSource = currentList 
+            // }
         } else {
-            Log.d("MainActivity", "Instance.updateDeviceList called with null device")
+            Log.d("MainActivity", "Instance.updateDeviceList called with null device to clear list?")
+            // scannedDevicesSource = listOf() 
         }
     }
 
     companion object {
         @JvmField
-        @JvmStatic 
+
         var reference: MainActivity? = null
 
         @JvmField
-        @JvmStatic // Added @JvmStatic for Java static access
+
         var currentDevice: BluetoothDevice? = null
 
-        // @JvmStatic is correctly NOT on const vals
+        // @JvmStatic is removed from const vals as it's redundant
         const val SERVICE_UUID = "00001809-0000-1000-8000-00805f9b34fb"
         const val COMMAND_UUID = "00002a37-0000-1000-8000-00805f9b34fb"
         const val CHARACTERISTIC_NOTIFICATION_UPDATE = "00002902-0000-1000-8000-00805f9b34fb"
