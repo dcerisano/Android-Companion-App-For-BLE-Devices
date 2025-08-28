@@ -1,142 +1,190 @@
 package com.example.smartwatchcompanionappv2;
 
+import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+// Reverted: import android.bluetooth.le.ScanCallback; // Not used with deprecated startLeScan
+// Reverted: import android.bluetooth.le.ScanResult; // Not used with deprecated startLeScan
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-// import android.os.Bundle; // Unused import (Warning:(8, 1))
+import android.content.pm.PackageManager;
+import android.os.Handler;
 import android.util.Log;
 
-// import java.util.ArrayList; // Unused import (Warning:(11, 1))
+import androidx.core.content.ContextCompat;
 
-// import no.nordicsemi.android.support.v18.scanner.BluetoothLeScannerCompat;
-// import no.nordicsemi.android.support.v18.scanner.ScanRecord;
-// import no.nordicsemi.android.support.v18.scanner.ScanResult;
+import java.util.ArrayList;
 
-/* Receives broadcasts that indicate a device has been found by the background BLE scan
-when a device is found it then starts a foreground service to handle the communication to the BLE
-device.  */
 public class BLEScanReceiver extends BroadcastReceiver {
-    private static final String TAG = "BLEReceiver";
+    private static final String TAG = BLEScanReceiver.class.getSimpleName();
+    private BluetoothAdapter mBluetoothAdapter;
+    private boolean mScanning;
+    private Handler mHandler;
+    private static final long SCAN_PERIOD = 10000;
+    public static ArrayList<BluetoothDevice> mLeDevices = new ArrayList<>();
+    public static BLEScanReceiver reference;
 
-    // This action will need to be redefined if you still use a custom scan result action
-    // public static final String ACTION_SCANNER_FOUND_DEVICE = "com.smartwatchCompanion.bleReceiver.ACTION_SCANNER_FOUND_DEVICE";
-    // Using Android's built-in action for found devices (if applicable with your new scanning method)
-    public static final String ACTION_SCANNER_FOUND_DEVICE = BluetoothDevice.ACTION_FOUND;
+    // Constructor to initialize adapter and handler
+    public BLEScanReceiver(BluetoothAdapter adapter, Handler handler) {
+        this.mBluetoothAdapter = adapter;
+        this.mHandler = handler;
+        reference = this;
+    }
+
+    // Default constructor for manifest registration, if needed
+    public BLEScanReceiver() {
+        reference = this;
+    }
 
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.i(TAG, "Broadcast Receiver Triggered " + intent.toString());
+        final String action = intent.getAction();
+        Log.d(TAG, "onReceive: Action: " + action);
 
-        String action = intent.getAction();
-        if (action == null) {
-            Log.d(TAG, "Received intent with null action");
+        if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+            BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+            if (device != null) {
+                // Classic Bluetooth discovery, not LE.
+            }
+        } else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
+            final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+            switch (state) {
+                case BluetoothAdapter.STATE_OFF:
+                    Log.d(TAG, "Bluetooth off");
+                    if (mScanning && mBluetoothAdapter != null) {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                            try {
+                                mBluetoothAdapter.stopLeScan(mLeScanCallback);
+                            } catch (SecurityException e) {
+                                Log.e(TAG, "SecurityException on stopLeScan (STATE_OFF)", e);
+                            }
+                        } else {
+                             Log.w(TAG, "BLUETOOTH_SCAN permission not granted. Cannot stop LE scan (STATE_OFF).");
+                        }
+                    }
+                    mScanning = false;
+                    break;
+                case BluetoothAdapter.STATE_TURNING_OFF:
+                    Log.d(TAG, "Turning Bluetooth off...");
+                    break;
+                case BluetoothAdapter.STATE_ON:
+                    Log.d(TAG, "Bluetooth on");
+                    break;
+                case BluetoothAdapter.STATE_TURNING_ON:
+                    Log.d(TAG, "Turning Bluetooth on...");
+                    break;
+            }
+        }
+    }
+
+    // Method to start/stop LE device scanning
+    public void scanLeDevice(final boolean enable, Context context) {
+        if (mBluetoothAdapter == null) {
+            Log.e(TAG, "BluetoothAdapter not initialized, cannot scan.");
+            return;
+        }
+        if (mHandler == null) {
+            Log.e(TAG, "Handler not initialized, cannot scan.");
             return;
         }
 
-        switch (action) {
-
-            // Look whether we find our device
-            case ACTION_SCANNER_FOUND_DEVICE: {
-                // The way scan results are extracted will change significantly
-                // if you switch to Android's built-in BLE scanner or another library.
-                // The code below using Nordic's ScanResult is commented out.
-                // You will need to re-implement device discovery and filtering.
-
-                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                if (device != null) {
-                    Log.i(TAG, "Found: " + device.getAddress()
-                            + " device name: " + device.getName());
-                    // Add your logic to filter for the correct device and start the service
-                    // For example, by checking device.getName() or device.getAddress()
-
-                    // Example:
-                    // if (device.getName() != null && device.getName().equals("YourSmartwatchName")) {
-                    //    if (!BLEService.isRunning) {
-                    //        MainActivity.currentDevice = device;
-                    //        context.startForegroundService(new Intent(context, BLEService.class));
-                    //    }
-                    // }
+        if (enable) {
+            mHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (mScanning) {
+                        mScanning = false;
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                            try {
+                                mBluetoothAdapter.stopLeScan(mLeScanCallback);
+                            } catch (SecurityException e) {
+                                Log.e(TAG, "SecurityException on stopLeScan (timeout)", e);
+                            }
+                        } else {
+                            Log.w(TAG, "BLUETOOTH_SCAN permission not granted. Cannot stop LE scan (timeout).");
+                        }
+                        if (MainActivity.reference != null) MainActivity.updateScanStatus();
+                    }
                 }
+            }, SCAN_PERIOD);
 
-
-                /*
-                Bundle extras = intent.getExtras();
-
-                if (extras != null) {
-                    // The Nordic specific EXTRA_LIST_SCAN_RESULT will not be present
-                    // Object o = extras.get(BluetoothLeScannerCompat.EXTRA_LIST_SCAN_RESULT);
-                    // if (o instanceof ArrayList) {
-                        // ArrayList<ScanResult> scanResults = (ArrayList<ScanResult>) o;
-                        // Log.v(TAG, "There are " + scanResults.size() + " results");
-
-                        // for (ScanResult result : scanResults) {
-                        //    if (result.getScanRecord() == null) {
-                        //        Log.d(TAG, "getScanRecord is null");
-                        //        continue;
-                        //    }
-
-                        //    BluetoothDevice device = result.getDevice();
-                        //    ScanRecord scanRecord = result.getScanRecord();
-                        //    String scanName = scanRecord.getDeviceName();
-                        //    String deviceName = device.getName();
-                        //    int rssi = result.getRssi();
-// //                            mHeader.setText("Single device found: " + device.getName() + " RSSI: " + result.getRssi() + "dBm");
-                        //    Log.i(TAG, "Found: " + device.getAddress()
-                        //            + " scan name: " + scanName
-                        //            + " device name: " + deviceName
-                        //            + " RSSI: " + result.getRssi() + "dBm");
-
-                        //    try {
-                        //        if (!BLEService.isRunning) {
-// //                                        BLEScanner.stopScan(MainActivity.reference);
-                        //            MainActivity.currentDevice = result.getDevice();
-                        //            context.startForegroundService(new Intent(context, BLEService.class));
-                        //        }
-                        //    } catch (IllegalStateException e) {
-                        //        Log.e(TAG, "Could not register service");
-                        //    }
-
-                        // }
-                    // } else {
-                    //    // Received something, but not a list of scan results...
-                    //    Log.d(TAG, "   no ArrayList but " + o);
-                    // }
-                } else {
-                    Log.d(TAG, "no extras");
+            mScanning = true;
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    mBluetoothAdapter.startLeScan(mLeScanCallback); // This is the permission-sensitive call
+                } catch (SecurityException e) {
+                    Log.e(TAG, "SecurityException on startLeScan", e);
+                    mScanning = false;
                 }
-                */
-
-                break;
+            } else {
+                Log.w(TAG, "BLUETOOTH_SCAN permission not granted. Cannot start LE scan.");
+                mScanning = false;
             }
-
-            case BluetoothAdapter.ACTION_STATE_CHANGED: {
-                final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-                switch (state) {
-                    case BluetoothAdapter.STATE_OFF:
-                        Log.d(TAG, "BLE off");
-                        // Need to take some action or app will fail...
-                        break;
-                    case BluetoothAdapter.STATE_TURNING_OFF:
-                        Log.d(TAG, "BLE turning off");
-//                        stopScan();
-                        break;
-                    case BluetoothAdapter.STATE_ON:
-                        Log.d(TAG, "BLE on");
-//                        startScan();    // restart scanning (provided the activity wants this to happen)
-                        break;
-                    case BluetoothAdapter.STATE_TURNING_ON:
-                        Log.d(TAG, "BLE turning on");
-                        break;
+        } else { // enable == false
+            mScanning = false;
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    if (mBluetoothAdapter != null) {
+                       mBluetoothAdapter.stopLeScan(mLeScanCallback);
+                    }
+                } catch (SecurityException e) {
+                    Log.e(TAG, "SecurityException on stopLeScan (manual stop)", e);
                 }
-                break;
+            } else {
+                Log.w(TAG, "BLUETOOTH_SCAN permission not granted. Cannot stop LE scan (manual stop).");
             }
-            default:
-                // should not happen
-                Log.d(TAG, "Received unexpected action " + intent.getAction());
-
         }
+        if (MainActivity.reference != null) MainActivity.updateScanStatus();
+    }
+
+    private BluetoothAdapter.LeScanCallback mLeScanCallback =
+            new BluetoothAdapter.LeScanCallback() {
+                @Override
+                public void onLeScan(final BluetoothDevice device, int rssi, byte[] scanRecord) {
+                    if (device != null) {
+                        boolean found = false;
+                        for (BluetoothDevice d : mLeDevices) {
+                            if (d.getAddress().equals(device.getAddress())) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            mLeDevices.add(device);
+                            String deviceName = null;
+                            // Getting device name requires BLUETOOTH_CONNECT on API 31+
+                            // Assuming MainActivity.reference provides a valid context for this check
+                            Context mainActivityContext = MainActivity.reference != null ? MainActivity.reference.getApplicationContext() : null; 
+                            if (mainActivityContext != null && ContextCompat.checkSelfPermission(mainActivityContext, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                                try {
+                                   deviceName = device.getName();
+                                } catch (SecurityException e) {
+                                   Log.e(TAG, "SecurityException on device.getName()", e);
+                                }
+                            } else {
+                                Log.w(TAG, "BLUETOOTH_CONNECT permission not granted for getting device name or context is null.");
+                            }
+                            Log.i(TAG, "Added LE device: " + (deviceName != null ? deviceName : "Unknown") + " with address " + device.getAddress());
+                            if (MainActivity.reference != null) {
+                                MainActivity.reference.runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        MainActivity.updateDeviceList(device);
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            };
+
+    public boolean isScanning() {
+        return mScanning;
+    }
+
+    public static BLEScanReceiver getReference() {
+        return reference;
     }
 }

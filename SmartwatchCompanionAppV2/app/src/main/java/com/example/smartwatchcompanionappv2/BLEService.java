@@ -13,26 +13,23 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import com.example.smartwatchcompanionappv2.MainActivity; // Ensure this import is present
-
 public class BLEService extends Service {
 
-    private static String TAG = "BLEService";
+    private static final String TAG = "BLEService"; // Made final
     private BLEGATT blegatt;
-    private static BLEService reference;
+    // private static BLEService reference; // Field removed
     public static final String CHANNEL_ID = "com.companionApp.UPDATE_SERVICE";
 
     public static Boolean isRunning = false;
 
+    @Override
     public void onCreate() {
         super.onCreate();
-        reference = this;
+        // reference = this; // Assignment removed
         Log.i(TAG, "onCreate: Called");
 
         createNotificationChannel();
 
-        // Intent notificationIntent = new Intent(this.getApplicationContext(), BLEService.class);
-        // Using MainActivity for the notification tap action for now
         Intent notificationIntent = new Intent(this.getApplicationContext(), MainActivity.class);
         PendingIntent pendingIntent =
                 PendingIntent.getActivity(this.getApplicationContext(), 300, notificationIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -56,9 +53,7 @@ public class BLEService extends Service {
 
         blegatt = new BLEGATT(this.getApplicationContext());
 
-        // Ensure MainActivity.currentDevice is not null before trying to get its address
         if (MainActivity.currentDevice != null) {
-            // THIS IS THE CORRECTED LINE:
             blegatt.connect(MainActivity.currentDevice.getAddress());
         } else {
             Log.e(TAG, "MainActivity.currentDevice is null, cannot connect.");
@@ -98,9 +93,5 @@ public class BLEService extends Service {
                 manager.createNotificationChannel(serviceChannel);
             }
         }
-    }
-
-    public static BLEService getReference() {
-        return reference;
     }
 }
