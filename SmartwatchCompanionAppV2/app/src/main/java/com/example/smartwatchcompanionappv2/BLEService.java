@@ -1,7 +1,5 @@
 package com.example.smartwatchcompanionappv2;
 
-import static org.ligi.tracedroid.sending.TraceDroidEmailSenderKt.sendTraceDroidStackTracesIfExist;
-
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -15,13 +13,9 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import org.ligi.tracedroid.TraceDroid;
+import com.example.smartwatchcompanionappv2.MainActivity; // Ensure this import is present
 
-/* Foreground service responsible for communication to the BLE device, we keep this in the foreground
-to allow the android device to always be communicating with the smartwatch when it appears. It could probably
-function as a background service but that is untested at this point in time.  */
 public class BLEService extends Service {
-
 
     private static String TAG = "BLEService";
     private BLEGATT blegatt;
@@ -35,26 +29,22 @@ public class BLEService extends Service {
         reference = this;
         Log.i(TAG, "onCreate: Called");
 
-        //init Tracedroid for problem reporting
-        TraceDroid.INSTANCE.init(this); // passing Application Context
-//        sendTraceDroidStackTracesIfExist("", this);
-
-        //create the notification
         createNotificationChannel();
 
-        Intent notificationIntent = new Intent(this.getApplicationContext(), BLEService.class);
+        // Intent notificationIntent = new Intent(this.getApplicationContext(), BLEService.class);
+        // Using MainActivity for the notification tap action for now
+        Intent notificationIntent = new Intent(this.getApplicationContext(), MainActivity.class);
         PendingIntent pendingIntent =
-                PendingIntent.getActivity(this.getApplicationContext(), 300, notificationIntent, 0);
+                PendingIntent.getActivity(this.getApplicationContext(), 300, notificationIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         Notification notification = new NotificationCompat.Builder(this.getApplicationContext(), CHANNEL_ID)
                 .setContentTitle("ESP32 Smartwatch")
                 .setContentText("BLE Gatt Server Is Running...")
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.mipmap.ic_launcher) // Make sure this resource exists
                 .setContentIntent(pendingIntent)
                 .build();
 
         startForeground(1, notification);
-
     }
 
     @Override
@@ -62,21 +52,31 @@ public class BLEService extends Service {
         Log.i(TAG, "Started BLE Handler Service with ID:" + startId);
         isRunning = true;
 
-        MainActivity.updateStatusText();
+        MainActivity.updateStatusText(); // Call to static method in MainActivity
 
         blegatt = new BLEGATT(this.getApplicationContext());
-        blegatt.connect(MainActivity.currentDevice);
+
+        // Ensure MainActivity.currentDevice is not null before trying to get its address
+        if (MainActivity.currentDevice != null) {
+            // THIS IS THE CORRECTED LINE:
+            blegatt.connect(MainActivity.currentDevice.getAddress());
+        } else {
+            Log.e(TAG, "MainActivity.currentDevice is null, cannot connect.");
+            // Handle the case where currentDevice is null, perhaps stop the service or attempt to scan
+        }
 
         return START_STICKY;
     }
 
-
     @Override
     public void onDestroy() {
-        Log.i(TAG, "Device Disconnected, BLESend service is now ending");
-
+        Log.i(TAG, "BLEService is now ending");
+        if (blegatt != null) {
+            blegatt.disconnect();
+            blegatt.close();
+        }
         isRunning = false;
-
+        MainActivity.updateStatusText(); // Update UI if needed
         super.onDestroy();
     }
 
@@ -94,8 +94,13 @@ public class BLEService extends Service {
                     NotificationManager.IMPORTANCE_LOW
             );
             NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
     }
 
+    public static BLEService getReference() {
+        return reference;
+    }
 }
